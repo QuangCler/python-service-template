@@ -1,7 +1,8 @@
+import abc
 import enum
-import os
+import typing as t
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from python_service_template.domain.coffee.repository import CoffeeClient
 
@@ -11,50 +12,61 @@ class HealthIndicator(str, enum.Enum):
     UNHEALTHY = "UNHEALTHY"
 
 
-class PublicHealthResponse(BaseModel):
-    git_commit_sha: str = Field(serialization_alias="gitCommitSha")
+class SimpleHealthStatus(BaseModel):
+    git_commit_sha: str
     heartbeat: HealthIndicator
     version: str
 
 
-class PrivateHealthResponse(PublicHealthResponse):
+class DetailedHealthStatus(SimpleHealthStatus):
     checks: dict[str, HealthIndicator]
 
 
-class PrivateHealthcheck:
-    def __init__(self, coffee_client: CoffeeClient) -> None:
-        self.coffee_client = coffee_client
+T = t.TypeVar("T", SimpleHealthStatus, DetailedHealthStatus)
 
-    async def check(self) -> PrivateHealthResponse:
-        if not await self.coffee_client.healthcheck():
-            coffee_status = HealthIndicator.UNHEALTHY
+
+class HealthChecker(abc.ABC, t.Generic[T]):
+    def __init__(self, coffee_client: CoffeeClient, app_version: str, git_sha: str) -> None:
+        self.coffee_client = coffee_client
+        self.app_version = app_version
+        self.git_sha = git_sha
+
+    async def check(self) -> T:
+        checks = {}
+
+        # Check coffee service health
+        if await self.coffee_client.healthcheck():
+            checks["coffee"] = HealthIndicator.HEALTHY
         else:
-            coffee_status = HealthIndicator.HEALTHY
-        checks = {"coffee": coffee_status}
+            checks["coffee"] = HealthIndicator.UNHEALTHY
+
         # More sophisticated checks can be added here
-        all_healthy = all([v == HealthIndicator.HEALTHY for v in checks.values()])
+
+        return self._create_status(checks)
+
+    @abc.abstractmethod
+    def _create_status(self, checks: dict[str, HealthIndicator]) -> T:
+        pass
+
+
+class DetailedHealthChecker(HealthChecker[DetailedHealthStatus]):
+    def _create_status(self, checks: dict[str, HealthIndicator]) -> DetailedHealthStatus:
+        all_healthy = all(v == HealthIndicator.HEALTHY for v in checks.values())
         status = HealthIndicator.HEALTHY if all_healthy else HealthIndicator.UNHEALTHY
-        return PrivateHealthResponse(
-            git_commit_sha=os.getenv("GIT_COMMIT_SHA", "sha"),
+        return DetailedHealthStatus(
+            git_commit_sha=self.git_sha,
             heartbeat=status,
-            version="1",
+            version=self.app_version,
             checks=checks,
         )
 
 
-class PublicHealthcheck:
-    def __init__(self, coffee_client: CoffeeClient) -> None:
-        self.coffee_client = coffee_client
-
-    async def check(self) -> PublicHealthResponse:
-        if not await self.coffee_client.healthcheck():
-            coffee_status = HealthIndicator.UNHEALTHY
-        else:
-            coffee_status = HealthIndicator.HEALTHY
-        # More sophisticated checks can be added here
-        status = coffee_status
-        return PublicHealthResponse(
-            git_commit_sha=os.getenv("GIT_COMMIT_SHA", "sha"),
+class SimpleHealthChecker(HealthChecker[SimpleHealthStatus]):
+    def _create_status(self, checks: dict[str, HealthIndicator]) -> SimpleHealthStatus:
+        all_healthy = all(v == HealthIndicator.HEALTHY for v in checks.values())
+        status = HealthIndicator.HEALTHY if all_healthy else HealthIndicator.UNHEALTHY
+        return SimpleHealthStatus(
+            git_commit_sha=self.git_sha,
             heartbeat=status,
-            version="1",
+            version=self.app_version,
         )
