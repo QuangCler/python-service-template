@@ -1,0 +1,38 @@
+
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm AS builder
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+
+RUN --mount=type=cache,target=/root/.cache \
+    uv sync --frozen --no-dev
+
+FROM python:3.13-slim AS runtime
+
+ENV \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    HOST=0.0.0.0 \
+    PORT=5000 \
+    PATH="/opt/venv/bin:${PATH}"
+
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup --home /app appuser
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /opt/venv
+
+COPY src ./src
+
+RUN chown -R appuser:appgroup /app /opt/venv
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \
+  CMD python -c "import urllib.request, sys;\ntry:\n    resp = urllib.request.urlopen('http://localhost:5000/health', timeout=2)\n    sys.exit(0 if resp.getcode() < 300 else 1)\nexcept Exception:\n    sys.exit(1)"
+
+USER appuser
+
+CMD ["python", "src/python_service_template/app.py"]

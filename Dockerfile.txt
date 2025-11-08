@@ -1,0 +1,53 @@
+
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm@sha256:529aecc5695da163c5badbd8ea8d6fb27ed3276d40ebc1c754d50d0fb27a8245 AS builder
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md ./
+COPY src/python_service_template ./src/python_service_template
+
+RUN --mount=type=cache,target=/root/.cache \
+    uv sync --frozen --no-dev
+
+RUN uv run pip install --no-cache-dir --upgrade "starlette>=0.49.1"
+
+FROM python:3.13-slim@sha256:452ed869040b0d92371f1d444da1997de6cd468b74c23149c0062c1c8b9ffbb3 AS runtime
+
+ENV \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    HOST=0.0.0.0 \
+    PORT=5000 \
+    PATH="/opt/venv/bin:${PATH}"
+
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup --home /app appuser
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /opt/venv
+
+COPY src ./src
+
+RUN chown -R appuser:appgroup /app /opt/venv
+
+EXPOSE 5000
+
+HEALTHCHECK CMD python -c "import urllib.request,sys; \
+    sys.exit(0) if urllib.request.urlopen('http://localhost:5000/health',timeout=2).getcode()<300 else sys.exit(1)" \
+  || exit 1
+  
+# OCI labels for traceability
+LABEL org.opencontainers.image.source="https://github.com/quangcler/python-service-template" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.revision="sha-$(git rev-parse --short HEAD)" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+      org.opencontainers.image.title="Python Service Template" \
+      org.opencontainers.image.description="FastAPI service template for Dockerfile Contest 2025"\
+      org.opencontainers.image.vendor="Tran Ngoc Quang"
+
+
+USER appuser
+
+CMD ["python", "src/python_service_template/app.py"]
