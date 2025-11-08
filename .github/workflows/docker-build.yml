@@ -53,10 +53,12 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Sign image with Cosign
+      - name: Sign image with Cosign (OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
         run: |
           echo "Signing image: $IMAGE_TAG"
-          cosign sign $IMAGE_TAG --identity-token $ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          cosign sign $IMAGE_TAG
 
       - name: Generate SBOM
         run: |
