@@ -33,35 +33,33 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push multi-arch image
-        env:
-          IMAGE_TAG: ghcr.io/${{ github.repository_owner }}/app:latest
         run: |
-          IMAGE_TAG_LOWER=$(echo "${IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')
-          echo "Building image ${IMAGE_TAG_LOWER}"
+          IMAGE_TAG=$(echo "ghcr.io/${{ github.repository_owner }}/app:latest" | tr '[:upper:]' '[:lower:]')
+          echo "Building image: $IMAGE_TAG"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
-            -t ${IMAGE_TAG_LOWER} \
+            -t $IMAGE_TAG \
             -f Dockerfile.txt \
             --push .
-
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Scan vulnerabilities with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/app:latest
-          format: table
-          severity: HIGH,CRITICAL
+        run: |
+          echo "Scanning image: $IMAGE_TAG"
+          trivy image --severity HIGH,CRITICAL $IMAGE_TAG
 
-      - name: Sign image with Cosign
+      - name: Install Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Perform signing
+      - name: Sign image with Cosign
         run: |
-          cosign sign ghcr.io/${{ github.repository_owner }}/app:latest \
-            --identity-token $ACTIONS_ID_TOKEN_REQUEST_TOKEN
+          echo "Signing image: $IMAGE_TAG"
+          cosign sign $IMAGE_TAG --identity-token $ACTIONS_ID_TOKEN_REQUEST_TOKEN
 
       - name: Generate SBOM
-        run: trivy image --format cyclonedx --output sbom.json ghcr.io/${{ github.repository_owner }}/app:latest
+        run: |
+          echo "Generating SBOM for: $IMAGE_TAG"
+          trivy image --format cyclonedx --output sbom.json $IMAGE_TAG
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
