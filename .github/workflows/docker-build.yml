@@ -51,14 +51,15 @@ jobs:
           severity: HIGH,CRITICAL
           
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.5.0
+      uses: sigstore/cosign-installer@v3.5.0
 
       - name: Sign image with Cosign (OIDC)
         env:
           COSIGN_EXPERIMENTAL: "true"
         run: |
           echo "Signing image: $IMAGE_TAG"
-          cosign sign $IMAGE_TAG
+          cosign sign --yes $IMAGE_TAG
+
 
       - name: Generate SBOM
         run: |
